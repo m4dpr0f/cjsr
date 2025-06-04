@@ -1,0 +1,44 @@
+/* Mobile Keyboard Styling */
+
+.virtual-keyboard {
+  transition: all 0.3s ease;
+  transform-origin: bottom;
+}
+
+.virtual-key {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.virtual-key:active {
+  transform: scale(0.95);
+  opacity: 0.8;
+}
+
+@keyframes key-press {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+.mobile-typing-interface {
+  position: relative;
+}
+
+/* Make sure we maintain the cursor blinking */
+.typing-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.2em;
+  background-color: #F9BE2A;
+  margin-left: 1px;
+  animation: blink 1s step-end infinite;
+  vertical-align: text-bottom;
+}
+
+@keyframes blink {
+  0% { opacity: 1; }
+  50% { opacity: 0; }
+  100% { opacity: 1; }
+}

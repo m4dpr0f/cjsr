@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "tradition": "Taoism",
+    "text": "The journey of a thousand miles begins with one step",
+    "source": "Tao Te Ching",
+    "translation": "Every great achievement starts with a single action"
+  },
+  {
+    "id": 2,
+    "tradition": "Buddhism",
+    "text": "Peace comes from within. Do not seek it without",
+    "source": "Buddha",
+    "translation": "True tranquility is found through inner cultivation"
+  },
+  {
+    "id": 3,
+    "tradition": "Vedanta",
+    "text": "You are what your deep, driving desire is",
+    "source": "Brihadaranyaka Upanishad",
+    "translation": "Our fundamental aspirations shape our reality"
+  }
+]

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "basic-training",
+    "name": "Basic Training",
+    "description": "Learn the fundamentals of typing",
+    "levels": [
+      {
+        "id": 1,
+        "name": "First Steps",
+        "prompt": "Welcome to CJSR! Type this text to begin your journey.",
+        "targetWPM": 20,
+        "targetAccuracy": 90
+      },
+      {
+        "id": 2,
+        "name": "Building Speed",
+        "prompt": "Practice makes perfect. Keep typing to improve your speed.",
+        "targetWPM": 30,
+        "targetAccuracy": 92
+      }
+    ]
+  },
+  {
+    "id": "wisdom-path",
+    "name": "Path of Wisdom",
+    "description": "Type sacred texts and philosophical quotes",
+    "levels": [
+      {
+        "id": 1,
+        "name": "Ancient Wisdom",
+        "prompt": "The journey of a thousand miles begins with one step",
+        "targetWPM": 25,
+        "targetAccuracy": 95
+      }
+    ]
+  }
+]

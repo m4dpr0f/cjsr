@@ -1,0 +1,48 @@
+{
+  "name": "CJSR Matrix Federation",
+  "version": "1.4.5",
+  "description": "ChickenJockey Scribe Racer - The ultimate typing game with Matrix Federation multiplayer",
+  "author": "Quilltangle Games",
+  "platforms": {
+    "windows": {
+      "executable": "CJSR.exe",
+      "requirements": "Windows 10 or later, 4GB RAM",
+      "features": ["Offline Play", "Local Server", "Federation Network"]
+    },
+    "mac": {
+      "executable": "CJSR.app",
+      "requirements": "macOS 10.15 or later, 4GB RAM", 
+      "features": ["Offline Play", "Local Server", "Federation Network"]
+    },
+    "linux": {
+      "executable": "CJSR.AppImage",
+      "requirements": "Modern Linux distribution, 4GB RAM",
+      "features": ["Offline Play", "Local Server", "Federation Network"]
+    },
+    "web": {
+      "file": "index.html",
+      "requirements": "Modern web browser",
+      "features": ["Web Play", "Local Storage", "Federation Connect"]
+    }
+  },
+  "gameFeatures": [
+    "Single-player typing campaigns",
+    "Multiplayer Matrix Federation racing",
+    "8-faction progression system", 
+    "Wisdom text transcription",
+    "Glyph Scribes mini-game",
+    "Local server hosting",
+    "Cross-platform progress sync",
+    "Offline mode support"
+  ],
+  "itchConfiguration": {
+    "pricing": "Pay what you want",
+    "minimumPrice": 0,
+    "suggestedPrice": 5,
+    "tags": ["typing", "multiplayer", "education", "racing", "federation"],
+    "category": "Games",
+    "subcategory": "Educational",
+    "classification": "Game",
+    "releaseStatus": "Released"
+  }
+}

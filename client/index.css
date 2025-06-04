@@ -1,0 +1,467 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Minecraft-inspired color palette */
+  --background: 0 0% 100%;
+  --foreground: 20 14.3% 4.1%;
+  --muted: 60 4.8% 95.9%;
+  --muted-foreground: 25 5.3% 44.7%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 20 14.3% 4.1%;
+  --card: 0 0% 100%;
+  --card-foreground: 20 14.3% 4.1%;
+  --border: 20 5.9% 90%;
+  --input: 20 5.9% 90%;
+  --primary: 45 100% 50%; /* Gold */
+  --primary-foreground: 0 0% 0%;
+  --secondary: 174 59% 46%; /* Teal */
+  --secondary-foreground: 0 0% 0%;
+  --accent: 0 70% 60%; /* Red */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 60 9.1% 97.8%;
+  --ring: 20 14.3% 4.1%;
+  --radius: 0px;
+  
+  /* Accessibility variables */
+  --font-size-multiplier: 1;
+}
+
+.dark {
+  /* Minecraft dark mode */
+  --background: 0 0% 12%; /* Dark gray background */
+  --foreground: 0 0% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --popover: 240 10% 3.9%;
+  --popover-foreground: 0 0% 98%;
+  --card: 0 0% 20%; /* Darker cards */
+  --card-foreground: 0 0% 98%;
+  --border: 45 100% 50%; /* Gold borders */
+  --input: 0 0% 8%; /* Very dark input background */
+  --primary: 45 100% 50%; /* Gold */
+  --primary-foreground: 0 0% 0%;
+  --secondary: 174 59% 46%; /* Teal */
+  --secondary-foreground: 0 0% 0%;
+  --accent: 0 70% 60%; /* Red */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --ring: 240 4.9% 83.9%;
+  --radius: 0px; /* Square corners for Minecraft feel */
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+  
+  /* Apply font size multiplier for accessibility - but exclude from gameplay elements */
+  .a11y-text {
+    font-size: calc(1em * var(--font-size-multiplier));
+  }
+  
+  /* High contrast mode */
+  .high-contrast {
+    --primary: 45 100% 60%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 174 80% 40%;
+    --foreground: 0 0% 100%;
+    --background: 0 0% 0%;
+    --border: 0 0% 100%;
+  }
+  
+  /* Reduced motion mode */
+  .reduced-motion * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Minecraft-inspired styling */
+.font-minecraft {
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.minecraft-border {
+  border: 3px solid #3A2E27;
+  box-shadow: inset 0 0 0 2px #F9BE2A;
+}
+
+.pixel-button {
+  @apply bg-primary text-primary-foreground font-minecraft uppercase;
+  box-shadow: 
+    inset -3px -3px 0 #3A2E27,
+    inset 3px 3px 0 #ffd95d;
+}
+
+.pixel-button:hover {
+  @apply bg-primary/90;
+}
+
+.pixel-button:active {
+  box-shadow: 
+    inset 3px 3px 0 #3A2E27,
+    inset -3px -3px 0 #ffd95d;
+}
+
+.pixel-border {
+  @apply border-2 border-primary rounded-none;
+}
+
+/* Race track styling */
+.race-track {
+  @apply relative h-64 overflow-hidden;
+  background-image: url('./assets/bg/race-bg.png');
+  background-size: cover;
+  image-rendering: pixelated;
+}
+
+.typing-cursor {
+  @apply inline-block w-2 h-5 bg-primary-foreground ml-1;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Dark theme form inputs */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: rgb(17 24 39); /* bg-gray-900 */
+  border-color: rgb(75 85 99); /* border-gray-600 */
+  color: white;
+}
+
+.dark input::placeholder,
+.dark select::placeholder,
+.dark textarea::placeholder {
+  color: rgb(156 163 175); /* text-gray-400 */
+}
+
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  border-color: hsl(var(--primary));
+  outline: none;
+}
+
+.dark option {
+  background-color: rgb(17 24 39); /* bg-gray-900 */
+  color: white;
+}
+
+/* Animation classes */
+.animate-bounce-slow {
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-run {
+  animation: run 0.5s steps(4) infinite;
+}
+
+@keyframes run {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(4px); }
+}
+
+/* Chicken animations */
+.chicken-hop {
+  animation: chicken-hop 0.6s infinite alternate;
+}
+
+@keyframes chicken-hop {
+  0% { transform: translateY(0) rotate(-1deg); }
+  100% { transform: translateY(-4px) rotate(1deg); }
+}
+
+.animate-chicken-run {
+  animation: chicken-run 0.3s steps(2) infinite;
+}
+
+@keyframes chicken-run {
+  0% { transform: translateX(-2px); }
+  100% { transform: translateX(2px); }
+}
+
+/* Race focus mode styling */
+body.race-focus-mode header,
+body.race-focus-mode footer,
+body.race-focus-mode .game-mode-selector,
+body.race-focus-mode .player-stats,
+body.race-focus-mode .players-panel,
+body.race-focus-mode .chicken-customizer,
+body.race-focus-mode .sidebar {
+  display: none !important;
+}
+
+body.race-focus-mode #race-track-section,
+body.race-focus-mode #scribing-interface-section {
+  width: 95%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+body.race-focus-mode main {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 1rem;
+  background: #1a1a1a url('./assets/bg/race-course-dirt.png');
+  background-attachment: fixed;
+  background-size: cover;
+  background-position: center;
+}
+
+body.race-focus-mode #race-track-section {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0; 
+  width: 100%;
+  margin: 0 auto;
+  padding: 0.75rem;
+  z-index: 50;
+  background-color: rgba(0, 0, 0, 0.95);
+  max-height: 40vh;
+  overflow: visible;
+}
+
+body.race-focus-mode #scribing-interface-section {
+  margin-top: calc(40vh + 1rem);
+  padding-top: 1rem;
+}
+
+body.race-focus-mode #race-track-section .race-track {
+  max-height: 25vh;
+  min-height: 140px;
+  height: 25vh;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Compact progress bars in focus mode */
+body.race-focus-mode #race-track-section .space-y-1 {
+  margin-top: 0.25rem;
+}
+
+/* Improve visibility when in focus mode */
+body.race-focus-mode #scribing-interface-section .bg-dark {
+  background-color: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+  border: 3px solid #3A2E27;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5), inset 0 0 0 2px #F9BE2A;
+}
+
+/* Race stats bar styling */
+.race-stats-bar {
+  background-color: rgba(0, 0, 0, 0.85);
+  border-color: #F9BE2A !important;
+  font-family: 'Courier New', monospace;
+}
+
+body.race-focus-mode .race-stats-bar {
+  background-color: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  border: 2px solid #F9BE2A !important;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+body.race-focus-mode .typing-cursor {
+  height: 1.2em;
+}
+
+/* Mobile race mode specific styles */
+body.mobile-race-mode {
+  overflow: hidden;
+}
+
+body.mobile-race-mode #race-track-section {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.5rem;
+  z-index: 50;
+  background-color: rgba(0, 0, 0, 0.95);
+  max-height: 35vh;
+}
+
+body.mobile-race-mode #scribing-interface-section {
+  width: 100%;
+  max-width: 100%;
+  margin-top: calc(35vh + 0.5rem);
+  padding: 0.5rem;
+}
+
+/* Matrix Operatives sprite layering fix */
+.matrix-operative-sprite {
+  position: relative;
+  z-index: 30 !important;
+  overflow: visible !important;
+}
+
+.matrix-operative-container {
+  overflow: visible !important;
+  z-index: 10 !important;
+  position: relative;
+}
+
+.matrix-operative-container > div {
+  z-index: 30 !important;
+  overflow: visible !important;
+}
+
+/* Ensure peacock champion and all sprites display fully */
+.matrix-operative-container .chicken-avatar,
+.matrix-operative-container .chicken-avatar > *,
+.matrix-operative-container [class*="chicken"],
+.matrix-operative-container [class*="jockey"] {
+  overflow: visible !important;
+  z-index: 30 !important;
+  position: relative;
+}
+
+/* Mobile optimization for text display and inputs */
+@media (max-width: 768px) {
+  .race-track {
+    height: 150px !important;
+  }
+  
+  #race-track-section .font-minecraft {
+    font-size: 0.75rem;
+  }
+  
+  .font-minecraft {
+    letter-spacing: 0.5px;
+  }
+  
+  /* Campaign accessibility improvements */
+  .campaign-selection-grid {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Improve tap targets */
+  button, 
+  .button, 
+  [role="button"], 
+  input[type="button"], 
+  input[type="submit"], 
+  input[type="reset"] {
+    min-height: 44px;
+    padding: 0.5rem 1rem;
+  }
+  
+  /* Fix touch scrolling */
+  .overflow-y-auto,
+  .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Fix text sizing for mobile prompts */
+  #scribing-interface-section .bg-light {
+    font-size: 16px !important;
+    line-height: 1.5;
+  }
+  
+  /* Improve campaign navigation on mobile */
+  .campaign-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.9);
+    padding: 0.5rem;
+    z-index: 40;
+    display: flex;
+    justify-content: center;
+  }
+  
+  /* Adjust chicken avatars for better mobile viewing */
+  .chicken-avatar-container {
+    transform: scale(0.8);
+  }
+  
+  /* Native keyboard support */
+  input[type="text"].mobile-input {
+    font-size: 16px !important; /* Prevents iOS zoom on focus */
+  }
+}
+
+/* Chocobo-only sprite animations for SOLDIER campaign */
+@keyframes head-bob {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-1px); }
+  100% { transform: translateY(0px); }
+}
+
+@keyframes body-bounce {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-2px); }
+  100% { transform: translateY(0px); }
+}
+
+@keyframes wing-flap {
+  0% { transform: rotate(-15deg) translateY(0px); }
+  100% { transform: rotate(15deg) translateY(-1px); }
+}
+
+@keyframes leg-stride-left {
+  0% { transform: translateY(0px) rotate(0deg); }
+  25% { transform: translateY(-3px) rotate(-10deg); }
+  50% { transform: translateY(-1px) rotate(0deg); }
+  75% { transform: translateY(1px) rotate(10deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+@keyframes leg-stride-right {
+  0% { transform: translateY(0px) rotate(0deg); }
+  25% { transform: translateY(1px) rotate(10deg); }
+  50% { transform: translateY(-1px) rotate(0deg); }
+  75% { transform: translateY(-3px) rotate(-10deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+@keyframes foot-step-left {
+  0% { transform: translateY(0px) scale(1); }
+  25% { transform: translateY(-1px) scale(1.1); }
+  50% { transform: translateY(0px) scale(1); }
+  75% { transform: translateY(1px) scale(0.9); }
+  100% { transform: translateY(0px) scale(1); }
+}
+
+@keyframes foot-step-right {
+  0% { transform: translateY(0px) scale(1); }
+  25% { transform: translateY(1px) scale(0.9); }
+  50% { transform: translateY(0px) scale(1); }
+  75% { transform: translateY(-1px) scale(1.1); }
+  100% { transform: translateY(0px) scale(1); }
+}
+
+@keyframes tail-sway {
+  0% { transform: rotate(-5deg); }
+  50% { transform: rotate(5deg); }
+  100% { transform: rotate(-5deg); }
+}

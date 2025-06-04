@@ -1,0 +1,833 @@
+import type { Express, Request, Response, NextFunction } from "express";
+import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from "ws";
+import { storage } from "./storage";
+import { initWebSocketHandlers } from "./websocket/message-handler";
+import { RaceManager } from "./game/race-manager";
+import { PromptManager } from "./game/prompt-manager";
+import { PlayerManager } from "./game/player-manager";
+import { z } from "zod";
+import { ZodError } from "zod";
+import { insertPromptSchema, insertUserSchema, userRegistrationSchema, customizationSchema } from "@shared/schema";
+import { fromZodError } from "zod-validation-error";
+import * as path from "path";
+import * as fs from "fs";
+import multer from "multer";
+import { randomUUID } from "crypto";
+import sharp from "sharp";
+// Shrine routes will be implemented directly here
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Create HTTP server
+  const httpServer = createServer(app);
+  
+  // Initialize game managers
+  const raceManager = new RaceManager();
+  const promptManager = new PromptManager(storage);
+  const playerManager = new PlayerManager(storage);
+  
+  // Initialize WebSocket server
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  
+  // Initialize WebSocket handlers
+  initWebSocketHandlers(wss, raceManager, promptManager, playerManager);
+  
+  // Set up NPC update interval
+  setInterval(() => {
+    // Update NPCs in all active races
+    for (const raceId of raceManager.getAllRaces().map(race => race.id)) {
+      raceManager.updateNpcProgress(raceId);
+      
+      // Update all clients with player progress
+      const race = raceManager.getRace(raceId);
+      if (race && race.status === 'racing') {
+        race.players.forEach(player => {
+          // Broadcast updated player progress to everyone in the race
+          race.players.forEach(otherPlayer => {
+            if (otherPlayer.socket.readyState === WebSocket.OPEN) {
+              otherPlayer.socket.send(JSON.stringify({
+                type: "player_progress",
+                playerId: player.id,
+                progress: player.progress
+              }));
+            }
+          });
+        });
+      }
+    }
+  }, 250); // Update 4 times per second
+  
+  // Set up multer for file uploads
+  const avatarStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      const uploadDir = path.join(process.cwd(), 'uploads/avatars');
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, 'avatar-' + uniqueSuffix + ext);
+    }
+  });
+  
+  const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+    // Accept only image files
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  };
+  
+  const upload = multer({ 
+    storage: avatarStorage, 
+    fileFilter,
+    limits: { 
+      fileSize: 1024 * 1024 // 1MB limit
+    }
+  });
+  
+  // Auth check middleware
+  const isAuthenticated = async (req: any, res: any, next: any) => {
+    const userId = req.session?.userId;
+    
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    
+    const user = await storage.getUser(userId);
+    
+    if (!user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    
+    req.user = user;
+    next();
+  };
+  
+  // API Routes
+  
+  // User authentication and registration
+  app.post("/api/auth/register", upload.single('avatar'), async (req: Request, res: Response) => {
+    try {
+      // Get the form data
+      const { username, password, email } = req.body;
+      
+      // Validate registration data
+      const userData = insertUserSchema.parse({
+        username,
+        password,
+        email: email || undefined
+      });
+      
+      // Check if username already exists
+      const existingUser = await storage.getUserByUsername(userData.username);
+      if (existingUser) {
+        // Clean up the uploaded file if it exists
+        if (req.file) {
+          fs.unlinkSync(req.file.path);
+        }
+        return res.status(409).json({ message: "Username already taken" });
+      }
+      
+      // If email is provided, check if it already exists
+      if (userData.email) {
+        const existingEmail = await storage.getUserByEmail(userData.email);
+        if (existingEmail) {
+          // Clean up the uploaded file if it exists
+          if (req.file) {
+            fs.unlinkSync(req.file.path);
+          }
+          return res.status(409).json({ message: "Email already registered" });
+        }
+      }
+      
+      // Process avatar if uploaded
+      let avatarUrl = undefined;
+      if (req.file) {
+        try {
+          // Resize image to save space and ensure consistent avatar size
+          const outputPath = req.file.path.replace(path.extname(req.file.path), '.webp');
+          
+          await sharp(req.file.path)
+            .resize(128, 128, { fit: 'cover' })
+            .webp({ quality: 80 })
+            .toFile(outputPath);
+            
+          // Delete the original file after processing
+          fs.unlinkSync(req.file.path);
+          
+          // Set the avatar URL relative to the server
+          avatarUrl = '/uploads/avatars/' + path.basename(outputPath);
+        } catch (error) {
+          console.error('Error processing avatar image:', error);
+          // Continue registration without avatar if processing fails
+        }
+      }
+      
+      // Create the user with avatar if available
+      const newUser = await storage.createUser({
+        ...userData,
+        avatar_url: avatarUrl
+      });
+      
+      // Remove sensitive data from response
+      const { password: _, ...userResponse } = newUser;
+      
+      res.status(201).json(userResponse);
+    } catch (error) {
+      // Clean up the uploaded file if it exists in case of an error
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      
+      console.error("Registration error:", error);
+      if (error instanceof ZodError) {
+        const zodError = fromZodError(error);
+        res.status(400).json({ message: zodError.message });
+      } else {
+        res.status(500).json({ message: "An unexpected error occurred during registration" });
+      }
+    }
+  });
+  
+  app.post("/api/auth/login", async (req: any, res: Response) => {
+    try {
+      const { username, password } = insertUserSchema.parse(req.body);
+      const user = await storage.getUserByUsername(username);
+      
+      if (!user || user.password !== password) {
+        return res.status(401).json({ message: "Invalid username or password" });
+      }
+      
+      // Don't send password back
+      const { password: _, ...userResponse } = user;
+      
+      // Set session data (in a real app, use proper session management)
+      req.session.userId = user.id;
+      
+      res.status(200).json(userResponse);
+    } catch (error) {
+      console.error("Login error:", error);
+      if (error instanceof ZodError) {
+        const zodError = fromZodError(error);
+        res.status(400).json({ message: zodError.message });
+      } else {
+        res.status(500).json({ message: "An unexpected error occurred during login" });
+      }
+    }
+  });
+  
+  app.post("/api/auth/logout", (req: any, res: Response) => {
+    req.session.destroy((err: any) => {
+      if (err) {
+        return res.status(500).json({ message: "Failed to logout" });
+      }
+      res.status(200).json({ message: "Logged out successfully" });
+    });
+  });
+  
+  // User profile
+  app.get("/api/profile", isAuthenticated, async (req: any, res: Response) => {
+    const userId = req.user.id;
+    
+    try {
+      // Get user data
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Get user's race history
+      const recentRaces = await storage.getRaceHistoryByUserId(userId, 10);
+      
+      // Get user's submitted prompts
+      const prompts = await storage.getPromptsByAuthorId(userId);
+      
+      // Get user's egg collection
+      const eggs = await storage.getUserEggs(userId);
+      
+      // Don't send password back
+      const { password, ...userProfile } = user;
+      
+      res.status(200).json({
+        ...userProfile,
+        recentRaces,
+        prompts,
+        eggs
+      });
+    } catch (error) {
+      console.error("Error fetching profile:", error);
+      res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  });
+  
+  app.patch("/api/profile/customization", isAuthenticated, async (req: any, res: Response) => {
+    const userId = req.user.id;
+    
+    try {
+      const customization = customizationSchema.parse(req.body);
+      
+      const updatedUser = await storage.updateUserCustomization(
+        userId,
+        customization.chickenName,
+        customization.chickenType,
+        customization.jockeyType,
+        customization.trailType
+      );
+      
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Don't send password back
+      const { password, ...userResponse } = updatedUser;
+      
+      res.status(200).json(userResponse);
+    } catch (error) {
+      const zodError = fromZodError(error as ZodError);
+      res.status(400).json({ message: zodError.message });
+    }
+  });
+  
+  // Prompts
+  app.get("/api/prompts", async (req, res) => {
+    try {
+      const prompts = await storage.getAllPrompts();
+      res.status(200).json(prompts);
+    } catch (error) {
+      console.error("Error fetching prompts:", error);
+      res.status(500).json({ message: "Failed to fetch prompts" });
+    }
+  });
+  
+  app.post("/api/prompts", isAuthenticated, async (req: any, res: Response) => {
+    const authorId = req.user.id;
+    
+    try {
+      const { text } = z.object({ text: z.string().min(50).max(250) }).parse(req.body);
+      
+      const newPrompt = await storage.createPrompt({
+        text,
+        author_id: authorId
+      });
+      
+      // Update user's prompts_added count
+      await storage.incrementUserPromptCount(authorId);
+      
+      res.status(201).json(newPrompt);
+    } catch (error) {
+      const zodError = fromZodError(error as ZodError);
+      res.status(400).json({ message: zodError.message });
+    }
+  });
+
+  // Create exports directory if it doesn't exist
+  const exportsDir = path.join(process.cwd(), "exports");
+  if (!fs.existsSync(exportsDir)) {
+    fs.mkdirSync(exportsDir, { recursive: true });
+  }
+
+
+  
+  // Basic shrine routes implementation (using separate functions)
+  app.get('/api/shrine/offerings', async (req, res) => {
+    try {
+      // Directly access offerings data from file
+      const dataDir = path.join(process.cwd(), 'data');
+      const offeringsPath = path.join(dataDir, 'shrine-offerings.json');
+      
+      if (!fs.existsSync(offeringsPath)) {
+        return res.json({ offerings: [] });
+      }
+      
+      const data = JSON.parse(fs.readFileSync(offeringsPath, 'utf8'));
+      res.json({ offerings: data.offerings || [] });
+    } catch (error) {
+      console.error('Error fetching offerings:', error);
+      res.status(500).json({ error: 'Failed to fetch offerings' });
+    }
+  });
+  
+  app.get('/api/shrine/eggs', async (req, res) => {
+    try {
+      // Directly access eggs data from file
+      const dataDir = path.join(process.cwd(), 'data');
+      const eggsPath = path.join(dataDir, 'shrine-eggs.json');
+      
+      if (!fs.existsSync(eggsPath)) {
+        return res.json({ eggs: [] });
+      }
+      
+      const data = JSON.parse(fs.readFileSync(eggsPath, 'utf8'));
+      res.json({ eggs: data.eggs || [] });
+    } catch (error) {
+      console.error('Error fetching eggs:', error);
+      res.status(500).json({ error: 'Failed to fetch eggs' });
+    }
+  });
+  
+  app.post('/api/shrine/submissions', isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const userId = req.user.id;
+      const { text, source, type } = req.body;
+      
+      if (!text || text.trim().length < 20) {
+        return res.status(400).json({ error: 'Text must be at least 20 characters long' });
+      }
+      
+      // Create a new submission
+      const dataDir = path.join(process.cwd(), 'data');
+      const submissionsPath = path.join(dataDir, 'shrine-submissions.json');
+      
+      // Make sure the data directory exists
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      
+      // Read existing submissions or create new array
+      let submissions = [];
+      if (fs.existsSync(submissionsPath)) {
+        const data = JSON.parse(fs.readFileSync(submissionsPath, 'utf8'));
+        submissions = data.submissions || [];
+      }
+      
+      // Create new submission with a generated ID
+      const submission = {
+        id: `submission-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        text,
+        source: source || 'User submission',
+        type: type || 'user',
+        timestamp: new Date().toISOString(),
+        reviewed: false
+      };
+      
+      // Add new submission
+      submissions.push(submission);
+      fs.writeFileSync(submissionsPath, JSON.stringify({ submissions }));
+      
+      res.json({ success: true, submission, message: "Submission received for review" });
+    } catch (error) {
+      console.error('Error adding submission:', error);
+      res.status(500).json({ error: 'Failed to add submission' });
+    }
+  });
+  
+  app.post('/api/shrine/gutenberg', async (req, res) => {
+    try {
+      const { url } = req.body;
+      
+      if (!url || !url.includes('gutenberg.org')) {
+        return res.status(400).json({ error: 'Invalid Gutenberg URL' });
+      }
+      
+      // Provide sample texts (for simplicity)
+      const sampleTexts = [
+        {
+          title: "The Wonderful Toymaker",
+          excerpt: "There was once a wonderful toymaker who could make toys come alive. Not with batteries or clockwork, but with something more magical - the joy of children. Each toy he created held a little piece of identity, a spark of life that would grow as a child played with it and loved it.",
+          eggType: "flameheart"
+        },
+        {
+          title: "The Swiss Family Robinson",
+          excerpt: "For many days we had been tempest-tossed. The storm appeared to have taken us entirely out of our route, and we were now sailing over a totally unknown sea. Our provisions were nearly exhausted, and we gazed with increasing anxiety upon the horizon, hoping that we might discover some shore upon which we might land and replenish our stores.",
+          eggType: "terraverde"
+        },
+        {
+          title: "The Wonderful Wizard of Oz",
+          excerpt: "Dorothy lived in the midst of the great Kansas prairies, with Uncle Henry, who was a farmer, and Aunt Em, who was the farmer's wife. Their house was small, for the lumber to build it had to be carried by wagon many miles. There were four walls, a floor and a roof, which made one room.",
+          eggType: "skywisp"
+        }
+      ];
+      
+      // Return a random sample
+      const randomSample = sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
+      res.json(randomSample);
+    } catch (error) {
+      console.error('Error fetching from Gutenberg:', error);
+      res.status(500).json({ error: 'Failed to fetch content' });
+    }
+  });
+  
+  // TEK8 Lotus Petals routes
+  app.get('/api/tek8/petals', (req, res) => {
+    try {
+      // Direct data for TEK8 canonical texts
+      const TEK8_CANONICAL_TEXTS = [
+        {
+          petal: 'D4',
+          element: 'Fire',
+          theme: 'Identity | Aura | Sight',
+          text: 'The Wonderful Toymaker',
+          author: 'Evelyn Sharp',
+          url: 'https://www.gutenberg.org/files/30400/30400-h/30400-h.htm',
+          eggType: 'flameheart',
+          description: 'A tale of transformation, where personal identity is forged in the fires of adventure and imagination.'
+        },
+        {
+          petal: 'D6',
+          element: 'Earth',
+          theme: 'Stability | Strength | Grounding',
+          text: 'The Swiss Family Robinson',
+          author: 'Johann David Wyss',
+          url: 'https://www.gutenberg.org/files/11707/11707-h/11707-h.htm',
+          eggType: 'terraverde',
+          description: 'Rooted in land and survival, this story shows how strength, family, and grounded creativity stabilize life.'
+        },
+        {
+          petal: 'D8',
+          element: 'Air',
+          theme: 'Creativity | Motion | Breath',
+          text: 'The Wonderful Wizard of Oz',
+          author: 'L. Frank Baum',
+          url: 'https://www.gutenberg.org/files/55/55-h/55-h.htm',
+          eggType: 'skywisp',
+          description: 'Wind, flight, and fantasy power this tale of imaginative transformation and moving beyond the known.'
+        },
+        {
+          petal: 'D10',
+          element: 'Chaos',
+          theme: 'Hype | Vibe | Disruption',
+          text: 'Alice\'s Adventures in Wonderland',
+          author: 'Lewis Carroll',
+          url: 'https://www.gutenberg.org/files/11/11-h/11-h.htm',
+          eggType: 'voidmyst',
+          description: 'A masterpiece of vibrant chaos, bending rules, language, and logic into a whirlwind of psychedelic storytelling.'
+        },
+        {
+          petal: 'D12',
+          element: 'Ether',
+          theme: 'Lore | Frequency | Intuition',
+          text: 'The Arabian Nights Entertainments',
+          author: 'Anonymous',
+          url: 'https://www.gutenberg.org/files/5667/5667-h/5667-h.htm',
+          eggType: 'ethereal',
+          description: 'A lore-dense archive of nested stories, dreams, and frequencies that echo moral and magical vibrations.'
+        },
+        {
+          petal: 'D20',
+          element: 'Water',
+          theme: 'Empathy | Depth | Healing',
+          text: '20,000 Leagues Under the Sea',
+          author: 'Jules Verne',
+          url: 'https://www.gutenberg.org/files/164/164-h/164-h.htm',
+          eggType: 'aquafrost',
+          description: 'A literal and emotional descent into deep ocean empathy — isolation, healing, and submerged humanity.'
+        },
+        {
+          petal: 'D2',
+          element: 'Coin',
+          theme: 'Luck | Risk | Exchange',
+          text: 'Jack and the Beanstalk',
+          author: 'Anonymous',
+          url: 'https://www.gutenberg.org/files/17034/17034-h/17034-h.htm',
+          eggType: 'sunglow',
+          description: 'Chance and barter catalyze a bold vertical journey of risk, treasure, and the unknown.'
+        },
+        {
+          petal: 'D100',
+          element: 'Order',
+          theme: 'Archive | Cosmos | Pattern',
+          text: 'Grimms\' Fairy Tales',
+          author: 'Jacob and Wilhelm Grimm',
+          url: 'https://www.gutenberg.org/files/2591/2591-h/2591-h.htm',
+          eggType: 'stonehide',
+          description: 'A structured cosmos of story archetypes. Every tale encodes moral pattern and recursive mythos.'
+        }
+      ];
+      
+      res.json({ petals: TEK8_CANONICAL_TEXTS });
+    } catch (error) {
+      console.error('Error fetching TEK8 petals:', error);
+      res.status(500).json({ error: 'Failed to fetch TEK8 petals' });
+    }
+  });
+  
+  app.post('/api/tek8/generate-egg', isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const userId = req.user.id;
+      
+      // Generate a TEK8 egg by randomly selecting a petal
+      const TEK8_CANONICAL_TEXTS = [
+        {
+          petal: 'D4',
+          element: 'Fire',
+          eggType: 'flameheart'
+        },
+        {
+          petal: 'D6',
+          element: 'Earth',
+          eggType: 'terraverde'
+        },
+        {
+          petal: 'D8',
+          element: 'Air',
+          eggType: 'skywisp'
+        },
+        {
+          petal: 'D10',
+          element: 'Chaos',
+          eggType: 'voidmyst'
+        },
+        {
+          petal: 'D12',
+          element: 'Ether',
+          eggType: 'ethereal'
+        },
+        {
+          petal: 'D20',
+          element: 'Water',
+          eggType: 'aquafrost'
+        },
+        {
+          petal: 'D2',
+          element: 'Coin',
+          eggType: 'sunglow'
+        },
+        {
+          petal: 'D100',
+          element: 'Order',
+          eggType: 'stonehide'
+        }
+      ];
+      
+      // Select a random petal
+      const randomPetal = TEK8_CANONICAL_TEXTS[Math.floor(Math.random() * TEK8_CANONICAL_TEXTS.length)];
+      
+      // Create a new egg for the user
+      const egg = await storage.generateRandomEgg(userId, randomPetal.eggType);
+      
+      res.json({ 
+        success: true, 
+        egg,
+        petal: randomPetal
+      });
+    } catch (error) {
+      console.error('Error generating TEK8 egg:', error);
+      res.status(500).json({ error: 'Failed to generate TEK8 egg' });
+    }
+  });
+  
+  // Admin routes for shrine submissions
+  app.get('/api/admin/submissions', isAuthenticated, async (req: any, res: Response) => {
+    try {
+      // For simplicity, all users can view submissions
+      const dataDir = path.join(process.cwd(), 'data');
+      const submissionsPath = path.join(dataDir, 'shrine-submissions.json');
+      
+      if (!fs.existsSync(submissionsPath)) {
+        return res.json({ submissions: [] });
+      }
+      
+      const data = JSON.parse(fs.readFileSync(submissionsPath, 'utf8'));
+      res.json({ submissions: data.submissions || [] });
+    } catch (error) {
+      console.error('Error fetching submissions:', error);
+      res.status(500).json({ error: 'Failed to fetch submissions' });
+    }
+  });
+  
+  // Egg collection routes
+  app.post("/api/eggs/generate", isAuthenticated, async (req: any, res: Response) => {
+    const userId = req.user.id;
+    const { source } = req.body;
+    
+    try {
+      const newEgg = await storage.generateRandomEgg(userId, source || "test");
+      res.status(201).json(newEgg);
+    } catch (error) {
+      console.error("Error generating egg:", error);
+      res.status(500).json({ message: "Failed to generate egg" });
+    }
+  });
+  
+  app.get("/api/eggs", isAuthenticated, async (req: any, res: Response) => {
+    const userId = req.user.id;
+    
+    try {
+      const eggs = await storage.getUserEggs(userId);
+      res.status(200).json(eggs);
+    } catch (error) {
+      console.error("Error fetching eggs:", error);
+      res.status(500).json({ message: "Failed to fetch eggs" });
+    }
+  });
+  
+  app.post("/api/eggs/:id/hatch", isAuthenticated, async (req: any, res: Response) => {
+    const userId = req.user.id;
+    const eggId = parseInt(req.params.id);
+    
+    try {
+      const egg = await storage.getEgg(eggId);
+      
+      if (!egg) {
+        return res.status(404).json({ message: "Egg not found" });
+      }
+      
+      if (egg.user_id !== userId) {
+        return res.status(403).json({ message: "Not your egg" });
+      }
+      
+      if (egg.hatched === 1) {
+        return res.status(400).json({ message: "Egg is already hatched" });
+      }
+      
+      const hatchedEgg = await storage.hatchEgg(eggId);
+      res.status(200).json(hatchedEgg);
+    } catch (error) {
+      console.error("Error hatching egg:", error);
+      res.status(500).json({ message: "Failed to hatch egg" });
+    }
+  });
+  
+  // Stats Export routes
+  app.get("/api/exports/users", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const fileName = `user_stats_${Date.now()}.csv`;
+      const filePath = path.join(exportsDir, fileName);
+      
+      const exportedFile = await storage.exportUserStatsToCSV(filePath);
+      
+      res.download(exportedFile, fileName, (err) => {
+        if (err) {
+          console.error("Error downloading file:", err);
+          // File cleanup after sending or error
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) console.error("Error removing temp file:", unlinkErr);
+          });
+        } else {
+          // Clean up file after successful download
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) console.error("Error removing temp file:", unlinkErr);
+          });
+        }
+      });
+    } catch (error) {
+      console.error("Error exporting user stats:", error);
+      res.status(500).json({ message: "Failed to export user stats" });
+    }
+  });
+
+  app.get("/api/exports/leaderboard", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const fileName = `leaderboard_${Date.now()}.csv`;
+      const filePath = path.join(exportsDir, fileName);
+      
+      const exportedFile = await storage.exportLeaderboardToCSV(filePath);
+      
+      res.download(exportedFile, fileName, (err) => {
+        if (err) {
+          console.error("Error downloading file:", err);
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) console.error("Error removing temp file:", unlinkErr);
+          });
+        } else {
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) console.error("Error removing temp file:", unlinkErr);
+          });
+        }
+      });
+    } catch (error) {
+      console.error("Error exporting leaderboard:", error);
+      res.status(500).json({ message: "Failed to export leaderboard" });
+    }
+  });
+
+  app.get("/api/exports/race-history", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const fileName = `race_history_${Date.now()}.csv`;
+      const filePath = path.join(exportsDir, fileName);
+      
+      const exportedFile = await storage.exportRaceHistoryToCSV(filePath);
+      
+      res.download(exportedFile, fileName, (err) => {
+        if (err) {
+          console.error("Error downloading file:", err);
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) console.error("Error removing temp file:", unlinkErr);
+          });
+        } else {
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) console.error("Error removing temp file:", unlinkErr);
+          });
+        }
+      });
+    } catch (error) {
+      console.error("Error exporting race history:", error);
+      res.status(500).json({ message: "Failed to export race history" });
+    }
+  });
+
+  // User-specific exports
+  app.get("/api/exports/my-races", isAuthenticated, async (req: any, res: Response) => {
+    const userId = req.user.id;
+    
+    try {
+      // Create a temp directory for user exports if it doesn't exist
+      const userExportsDir = path.join(exportsDir, `user_${userId}`);
+      if (!fs.existsSync(userExportsDir)) {
+        fs.mkdirSync(userExportsDir, { recursive: true });
+      }
+      
+      const fileName = `my_races_${Date.now()}.csv`;
+      const filePath = path.join(userExportsDir, fileName);
+      
+      // Get all user's race history
+      const races = await storage.getRaceHistoryByUserId(userId);
+      
+      if (races.length === 0) {
+        return res.status(404).json({ message: "No race history found" });
+      }
+      
+      // Create a CSV file with this user's race history
+      const csvWriter = require('fast-csv').write;
+      const writeStream = fs.createWriteStream(filePath);
+      
+      const csvStream = csvWriter({ headers: true });
+      csvStream.pipe(writeStream);
+      
+      for (const race of races) {
+        const prompt = await storage.getPrompt(race.prompt_id);
+        
+        csvStream.write({
+          date: race.race_date.toISOString(),
+          position: race.position,
+          total_players: race.total_players,
+          wpm: race.wpm,
+          accuracy: race.accuracy + '%',
+          time_taken: race.time_taken + 's',
+          xp_gained: race.xp_gained,
+          prompt: prompt?.text || 'Unknown prompt'
+        });
+      }
+      
+      csvStream.end();
+      
+      // Wait for the stream to finish
+      await new Promise((resolve) => {
+        writeStream.on('finish', resolve);
+      });
+      
+      res.download(filePath, fileName, (err) => {
+        if (err) {
+          console.error("Error downloading file:", err);
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) console.error("Error removing temp file:", unlinkErr);
+          });
+        } else {
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) console.error("Error removing temp file:", unlinkErr);
+          });
+        }
+      });
+    } catch (error) {
+      console.error("Error exporting user race history:", error);
+      res.status(500).json({ message: "Failed to export race history" });
+    }
+  });
+
+  return httpServer;
+}

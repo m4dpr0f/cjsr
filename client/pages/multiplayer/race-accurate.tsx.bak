@@ -1,0 +1,909 @@
+import { useEffect, useState, useRef } from "react";
+import { useLocation } from "wouter";
+import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
+import { PixelButton } from "@/components/ui/pixel-button";
+import { ChickenAvatar } from "@/components/ui/chicken-avatar";
+import { Flag, Clock3, Users } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { calculateWpm, getElapsedTime } from "@/lib/wpm-simple";
+import { getMultiplayerPromptByDifficulty } from "@/lib/multiplayer-prompts";
+import * as ws from "@/lib/websocket";
+
+// Simple, clean racer interface
+interface Racer {
+  id: number;
+  username: string;
+  isYou: boolean;
+  chickenType: string;
+  jockeyType: string;
+  progress: number;
+  position: number | null;
+  wpm: number;
+  accuracy: number;
+  finishTime: number | null;
+}
+
+export default function MultiplayerRaceAccurate() {
+  // Routing
+  const [_, setLocation] = useLocation();
+  
+  // Race state
+  const [lobbyCountdown, setLobbyCountdown] = useState<number>(12); // 12-second lobby wait
+  const [inLobby, setInLobby] = useState<boolean>(true); // Start in lobby mode
+  const [playersJoined, setPlayersJoined] = useState<number>(1); // Start with just yourself
+  
+  const [countdown, setCountdown] = useState<number | null>(3);
+  const [raceStarted, setRaceStarted] = useState(false);
+  const [raceFinished, setRaceFinished] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [playerPosition, setPlayerPosition] = useState<number | null>(null);
+  
+  // Typing state - use our new cyberpunk-themed multiplayer prompts
+  const [typingPrompt, setTypingPrompt] = useState(getMultiplayerPromptByDifficulty('medium'));
+  const [typed, setTyped] = useState("");
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [errorState, setErrorState] = useState(false);
+  const [errorCount, setErrorCount] = useState(0);
+  const [keypressCount, setKeypressCount] = useState(0);
+  
+  // WPM tracking
+  const [playerWpm, setPlayerWpm] = useState(0);
+  
+  // Refs for accurate timing
+  const inputRef = useRef<HTMLDivElement>(null);
+  const raceTimerRef = useRef<number | null>(null);
+  const raceStartTimeRef = useRef<number | null>(null);
+  const typingStartTimeRef = useRef<number | null>(null);
+  const wpmIntervalRef = useRef<number | null>(null);
+  
+  // Racers state
+  const [racers, setRacers] = useState<Racer[]>([
+    {
+      id: 1,
+      username: "You",
+      isYou: true,
+      chickenType: "html_steve",
+      jockeyType: "steve",
+      progress: 0,
+      position: null,
+      wpm: 0,
+      accuracy: 100,
+      finishTime: null
+    },
+    {
+      id: 2,
+      username: "SpeedTyper",
+      isYou: false,
+      chickenType: "html_auto",
+      jockeyType: "auto",
+      progress: 0,
+      position: null,
+      wpm: 70, // Base WPM for this NPC
+      accuracy: 98,
+      finishTime: null
+    },
+    {
+      id: 3,
+      username: "TypeMaster",
+      isYou: false,
+      chickenType: "html_matikah",
+      jockeyType: "matikah",
+      progress: 0,
+      position: null,
+      wpm: 60,
+      accuracy: 96,
+      finishTime: null
+    },
+    {
+      id: 4,
+      username: "QwertyWizard",
+      isYou: false,
+      chickenType: "html_death",
+      jockeyType: "death",
+      progress: 0,
+      position: null,
+      wpm: 50,
+      accuracy: 94,
+      finishTime: null
+    },
+    {
+      id: 5,
+      username: "KeyCapKing",
+      isYou: false,
+      chickenType: "html_steve",
+      jockeyType: "steve",
+      progress: 0,
+      position: null,
+      wpm: 45,
+      accuracy: 95,
+      finishTime: null
+    },
+    {
+      id: 6,
+      username: "SpeedDemon",
+      isYou: false,
+      chickenType: "html_auto",
+      jockeyType: "auto",
+      progress: 0,
+      position: null,
+      wpm: 65,
+      accuracy: 92,
+      finishTime: null
+    },
+    {
+      id: 7,
+      username: "TypeWarrior",
+      isYou: false,
+      chickenType: "html_matikah",
+      jockeyType: "matikah",
+      progress: 0,
+      position: null,
+      wpm: 55,
+      accuracy: 97,
+      finishTime: null
+    },
+    {
+      id: 8,
+      username: "KeyboardNinja",
+      isYou: false,
+      chickenType: "html_death",
+      jockeyType: "death",
+      progress: 0,
+      position: null,
+      wpm: 40,
+      accuracy: 93,
+      finishTime: null
+    }
+  ]);
+  
+  // Format time display (mm:ss)
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+  
+  // Initialize WebSocket connection and multiplayer functionality
+  useEffect(() => {
+    // Generate a new race prompt whenever component mounts
+    setTypingPrompt(getMultiplayerPromptByDifficulty('medium'));
+    
+    // Initialize WebSocket connection
+    ws.initializeWebSocket();
+    
+    // Generate a unique guest ID for this player
+    const guestId = `guest_${Math.random().toString(36).substring(2, 10)}`;
+    
+    // Get username from local storage or generate a random one
+    const savedUsername = localStorage.getItem('username') || `Player${Math.floor(Math.random() * 1000)}`;
+    
+    // Get saved customizations or use defaults
+    const savedChickenType = localStorage.getItem('chickenType') || 'html_steve';
+    const savedJockeyType = localStorage.getItem('jockeyType') || 'html_steve';
+    
+    // Join the multiplayer race with player info
+    ws.joinRace({
+      guestId,
+      guestName: savedUsername,
+      chickenType: savedChickenType,
+      jockeyType: savedJockeyType
+    });
+    
+    // Set up WebSocket event listeners
+    ws.on('race_join', (data) => {
+      console.log('Player joined race:', data);
+      // Add the new player to our racers list if they're not already there
+      setRacers(current => {
+        // Check if this player is already in our list
+        if (current.some(r => r.id === data.playerId)) {
+          return current;
+        }
+        
+        // Add the new player
+        return [...current, {
+          id: data.playerId,
+          username: data.username,
+          isYou: false,
+          chickenType: data.chickenType || 'html_steve',
+          jockeyType: data.jockeyType || 'html_steve',
+          progress: 0,
+          position: null,
+          wpm: 0,
+          accuracy: 100,
+          finishTime: null
+        }];
+      });
+      
+      // Update the players joined count
+      setPlayersJoined(prev => prev + 1);
+    });
+    
+    ws.on('race_start', (data) => {
+      console.log('Race starting:', data);
+      // Set the typing prompt from the server
+      if (data.prompt) {
+        setTypingPrompt(data.prompt);
+      }
+      
+      // End the lobby and start the countdown
+      setInLobby(false);
+    });
+    
+    ws.on('player_progress', (data) => {
+      // Update the progress of other players
+      setRacers(current => {
+        return current.map(racer => {
+          if (racer.id === data.playerId) {
+            return {
+              ...racer,
+              progress: data.progress,
+              wpm: data.wpm || racer.wpm,
+              accuracy: data.accuracy || racer.accuracy
+            };
+          }
+          return racer;
+        });
+      });
+    });
+    
+    ws.on('player_finished', (data) => {
+      // Mark a player as finished
+      setRacers(current => {
+        return current.map(racer => {
+          if (racer.id === data.playerId) {
+            return {
+              ...racer,
+              progress: 100,
+              position: data.position,
+              finishTime: data.time,
+              wpm: data.wpm || racer.wpm,
+              accuracy: data.accuracy || racer.accuracy
+            };
+          }
+          return racer;
+        });
+      });
+    });
+    
+    // Create a random chance of players joining during the lobby countdown
+    const lobbyTimer = setInterval(() => {
+      if (inLobby) {
+        // Count down the lobby timer
+        setLobbyCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(lobbyTimer);
+            setInLobby(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }
+    }, 1000);
+    
+    // Clean up all timers and WebSocket on unmount
+    return () => {
+      clearInterval(lobbyTimer);
+      if (raceTimerRef.current) clearInterval(raceTimerRef.current);
+      if (wpmIntervalRef.current) clearInterval(wpmIntervalRef.current);
+      ws.closeConnection();
+    };
+  }, []);
+  
+  // Start the race countdown after lobby ends
+  useEffect(() => {
+    if (!inLobby && countdown !== null) {
+      const countdownTimer = setInterval(() => {
+        setCountdown(prev => {
+          if (prev === null) return null;
+          if (prev <= 1) {
+            clearInterval(countdownTimer);
+            // Ensure we're scrolled to the top when race starts
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            startRace();
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
+      return () => {
+        clearInterval(countdownTimer);
+      };
+    }
+  }, [inLobby, countdown]);
+  
+  // Start the race
+  const startRace = () => {
+    setRaceStarted(true);
+    const now = Date.now();
+    raceStartTimeRef.current = now;
+    
+    // Focus the input element
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+    
+    // Start race timer
+    raceTimerRef.current = window.setInterval(() => {
+      if (raceStartTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - raceStartTimeRef.current) / 1000);
+        setElapsedTime(elapsed);
+      }
+    }, 1000);
+    
+    // Start NPC movement simulation
+    startNpcSimulation();
+  };
+  
+  // NPC movement simulation
+  const startNpcSimulation = () => {
+    const npcInterval = setInterval(() => {
+      if (raceFinished) {
+        clearInterval(npcInterval);
+        return;
+      }
+      
+      setRacers(prevRacers => {
+        // Update NPC positions
+        const updatedRacers = prevRacers.map(racer => {
+          if (!racer.isYou && racer.progress < 100) {
+            // Calculate progress based on NPC's WPM
+            // WPM = (chars / 5) / minutes
+            // So chars per second = (WPM * 5) / 60
+            const charsPerSecond = (racer.wpm * 5) / 60;
+            
+            // Add some natural variation (±10%)
+            const variation = 1 + ((Math.random() * 0.2) - 0.1);
+            const adjustedCharsPerSecond = charsPerSecond * variation;
+            
+            // For a 500ms interval, divide by 2
+            const charsTyped = adjustedCharsPerSecond / 2;
+            
+            // Convert to progress percentage
+            const progressIncrement = (charsTyped / typingPrompt.length) * 100;
+            const newProgress = Math.min(100, racer.progress + progressIncrement);
+            
+            // Check if NPC finished
+            if (newProgress >= 100 && racer.finishTime === null) {
+              const finishedRacers = prevRacers.filter(r => r.finishTime !== null).length;
+              return {
+                ...racer,
+                progress: 100,
+                position: finishedRacers + 1,
+                finishTime: elapsedTime
+              };
+            }
+            
+            return {
+              ...racer,
+              progress: newProgress
+            };
+          }
+          return racer;
+        });
+        
+        // Sort racers by progress (for visual display)
+        return sortRacersByProgress(updatedRacers);
+      });
+    }, 500);
+    
+    // Clean up interval on unmount
+    return () => clearInterval(npcInterval);
+  };
+  
+  // Helper function to sort racers by progress
+  const sortRacersByProgress = (racerList: Racer[]): Racer[] => {
+    return [...racerList].sort((a, b) => {
+      // Finished racers come first, sorted by position
+      if (a.position !== null && b.position !== null) {
+        return a.position - b.position;
+      }
+      
+      // Finished racers come before unfinished
+      if (a.position !== null) return -1;
+      if (b.position !== null) return 1;
+      
+      // Unfinished racers sorted by progress
+      return b.progress - a.progress;
+    });
+  };
+  
+  // Start WPM tracking when first key is pressed
+  const startWpmTracking = () => {
+    // Record when typing started
+    typingStartTimeRef.current = Date.now();
+    console.log("Typing started at:", typingStartTimeRef.current);
+    
+    // Start interval to continuously update WPM even when not typing
+    // This ensures WPM decreases during pauses
+    wpmIntervalRef.current = window.setInterval(() => {
+      if (typingStartTimeRef.current && currentIndex > 0) {
+        // Calculate elapsed time since typing started
+        const elapsedMs = getElapsedTime(typingStartTimeRef.current);
+        
+        // Calculate WPM using the standard formula: (chars/5) ÷ minutes
+        const wpm = calculateWpm(currentIndex, elapsedMs);
+        
+        console.log("WPM update:", {
+          chars: currentIndex,
+          elapsedMs, 
+          wpm
+        });
+        
+        // Update displayed WPM
+        setPlayerWpm(wpm);
+        
+        // Update player data in racers list
+        setRacers(prevRacers => prevRacers.map(racer => 
+          racer.isYou ? { ...racer, wpm } : racer
+        ));
+      }
+    }, 500); // Update twice per second for WPM that decreases during pauses
+  };
+  
+  // Handle keyboard input
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (!raceStarted || raceFinished) return;
+    
+    // Prevent default for Tab and Enter
+    if (e.key === 'Tab' || e.key === 'Enter') {
+      e.preventDefault();
+      return;
+    }
+    
+    // Handle backspace
+    if (e.key === 'Backspace') {
+      if (typed.length > 0) {
+        setTyped(prev => prev.slice(0, -1));
+        if (currentIndex > 0) {
+          setCurrentIndex(prev => prev - 1);
+        }
+        setErrorState(false);
+      }
+      return;
+    }
+    
+    // Handle regular character input
+    if (e.key.length === 1) {
+      // Start WPM tracking on first keystroke
+      if (currentIndex === 0 && typingStartTimeRef.current === null) {
+        typingStartTimeRef.current = Date.now();
+        // Set initial WPM to make sure we're not displaying 0
+        setPlayerWpm(1);
+      }
+      
+      // Calculate WPM on each keystroke for immediate feedback
+      if (typingStartTimeRef.current) {
+        const elapsedMs = getElapsedTime(typingStartTimeRef.current);
+        const wpm = calculateWpm(currentIndex + 1, elapsedMs); // +1 to count current keystroke
+        
+        // Update WPM display
+        setPlayerWpm(wpm);
+        
+        // Update player WPM in racers list
+        setRacers(prevRacers => prevRacers.map(racer => 
+          racer.isYou ? { ...racer, wpm } : racer
+        ));
+      }
+      
+      setKeypressCount(prev => prev + 1);
+      
+      // Check if character matches expected
+      if (currentIndex < typingPrompt.length && e.key === typingPrompt[currentIndex]) {
+        // Correct character
+        setTyped(prev => prev + e.key);
+        setCurrentIndex(prev => prev + 1);
+        setErrorState(false);
+        
+        // Update player progress
+        const progress = Math.min(100, Math.round((currentIndex + 1) / typingPrompt.length * 100));
+        setRacers(prev => prev.map(racer => 
+          racer.isYou ? { ...racer, progress } : racer
+        ));
+        
+        // Check if player finished
+        if (currentIndex + 1 === typingPrompt.length) {
+          playerFinished();
+        }
+      } else {
+        // Wrong character
+        setErrorState(true);
+        setErrorCount(prev => prev + 1);
+      }
+    }
+  };
+  
+  // Player finished typing
+  const playerFinished = () => {
+    // Stop WPM tracking
+    if (wpmIntervalRef.current) {
+      clearInterval(wpmIntervalRef.current);
+    }
+    
+    // Calculate final statistics
+    const finishedRacers = racers.filter(r => r.finishTime !== null).length;
+    const position = finishedRacers + 1;
+    
+    // Calculate accuracy
+    const accuracy = keypressCount > 0
+      ? Math.round(((keypressCount - errorCount) / keypressCount) * 100)
+      : 100;
+    
+    // Update player status
+    setPlayerPosition(position);
+    setRaceFinished(true);
+    
+    // Update player in racers list
+    const updatedRacers = racers.map(racer => 
+      racer.isYou ? {
+        ...racer,
+        progress: 100,
+        position,
+        finishTime: elapsedTime,
+        accuracy
+      } : racer
+    );
+    
+    // Sort racers for final display
+    setRacers(sortRacersByProgress(updatedRacers));
+    
+    // Send finish data to server so other players know
+    ws.playerFinished(playerWpm, accuracy, elapsedTime);
+  };
+  
+  // Add keyboard event listener
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (wpmIntervalRef.current) clearInterval(wpmIntervalRef.current);
+    };
+  }, [raceStarted, raceFinished, typed, currentIndex, elapsedTime, racers]);
+  
+  // Handle navigation
+  const handleBackToMenu = () => {
+    setLocation('/multiplayer');
+  };
+  
+  return (
+    <div className="flex flex-col min-h-screen bg-dark-950">
+      <Header />
+      
+      <main className="flex-1 container mx-auto px-4 pt-2 pb-6 max-w-6xl">
+        {inLobby ? (
+          <div className="flex flex-col items-center justify-center h-64">
+            <h1 className="text-3xl font-minecraft text-primary mb-6">WAITING FOR PLAYERS</h1>
+            <div className="bg-dark-800 p-6 rounded-lg pixel-border mb-4">
+              <div className="flex items-center justify-center space-x-2 mb-4">
+                <div className="text-2xl font-minecraft text-yellow-400">
+                  {lobbyCountdown}s
+                </div>
+                <div className="text-md text-gray-400">
+                  until race begins
+                </div>
+              </div>
+              
+              <div className="flex flex-col items-center">
+                <div className="text-md text-gray-200 mb-2">
+                  Players Joined: {playersJoined}/8
+                </div>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {racers
+                    .filter((_, index) => index < playersJoined)
+                    .map((racer, index) => (
+                      <div key={racer.id} className="relative bg-dark-900 p-2 rounded-md flex items-center space-x-2">
+                        <ChickenAvatar 
+                          chickenType={racer.chickenType}
+                          jockeyType={racer.jockeyType}
+                          size="xs"
+                          animation="idle"
+                        />
+                        <span className={racer.isYou ? 'text-primary text-sm' : 'text-gray-400 text-sm'}>
+                          {racer.isYou ? `${racer.username} (You)` : racer.username}
+                        </span>
+                      </div>
+                    ))
+                  }
+                </div>
+              </div>
+            </div>
+            <PixelButton variant="outline" size="sm" onClick={handleBackToMenu}>
+              Leave Lobby
+            </PixelButton>
+          </div>
+        ) : countdown !== null ? (
+          <div className="flex flex-col items-center justify-center h-64">
+            <h1 className="text-4xl font-minecraft text-primary mb-8">GET READY TO RACE!</h1>
+            <div className="text-8xl font-minecraft text-yellow-400 animate-pulse">
+              {countdown}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Race header */}
+            <div className="flex justify-between items-center h-10">
+              <div className="flex items-center">
+                <h1 className="text-xl font-minecraft text-primary mr-2">MULTIPLAYER RACE</h1>
+                <div className="bg-dark-800 px-2 py-1 rounded-lg flex items-center">
+                  <Clock3 className="w-4 h-4 text-yellow-400 mr-1" />
+                  <span className="text-md font-minecraft text-yellow-400">{formatTime(elapsedTime)}</span>
+                </div>
+              </div>
+              {playerPosition && (
+                <div className="bg-dark-800 px-2 py-1 rounded-lg flex items-center">
+                  <Flag className="w-4 h-4 text-primary mr-1" />
+                  <span className="text-md font-minecraft text-primary">
+                    Position: {playerPosition}/{racers.length}
+                  </span>
+                </div>
+              )}
+            </div>
+            
+            {/* NitroType style race track - sticky to top of viewport */}
+            <div className="bg-dark-900 p-2 rounded-lg mb-3 sticky top-16 z-30 overflow-hidden">
+              {/* Dark asphalt background with lane markers */}
+              <div className="relative bg-gray-800 rounded-lg p-1 border-t-2 border-b-2 border-dashed border-gray-600">
+                {/* Finish line marker */}
+                <div className="absolute right-0 top-0 bottom-0 w-2 bg-white border-l-2 border-gray-800 z-10"></div>
+                {/* Lane dividers */}
+                <div className="space-y-0.5">
+                {racers.map((racer, index) => (
+                  <div key={racer.id} className="mb-0.5">
+                    <div className="flex items-center h-8">
+                      {/* Racer identity */}
+                      <div className="w-24 flex items-center mr-1">
+                        <div className="w-4 mr-1 text-center">
+                          <span className="text-xs text-gray-500">{index + 1}</span>
+                        </div>
+                        <div className="w-5 h-5 mr-1">
+                          {racer.isYou ? (
+                            <span className="text-xs text-primary font-bold">(You)</span>
+                          ) : null}
+                        </div>
+                        <div className="truncate text-xs">
+                          <span className={racer.isYou ? 'text-primary' : 'text-gray-400'}>
+                            {racer.username}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* Race track */}
+                      <div className="flex-1 relative h-8 bg-dark-900 rounded overflow-hidden flex mx-1">
+                        {/* Track design */}
+                        <div className="absolute left-0 top-1/2 w-full border-b border-dashed border-gray-800 opacity-30"></div>
+                        <div className="absolute right-[5%] top-0 bottom-0 border-r-2 border-dashed border-gray-300 opacity-50"></div>
+                        
+                        {/* Racer avatar */}
+                        <div 
+                          className="absolute top-0 h-full flex items-center justify-center transition-all duration-300 z-10"
+                          style={{ 
+                            left: `${Math.max(0, Math.min(95, racer.progress))}%`,
+                            zIndex: 100 - (racer.position || 99) // Higher positions (1st place) get higher z-index
+                          }}
+                        >
+                          <div className="transform -translate-y-1">
+                            <ChickenAvatar 
+                              chickenType={racer.chickenType}
+                              jockeyType={racer.jockeyType}
+                              size="xs"
+                              animation={raceFinished ? "idle" : "run"}
+                              flipped={false}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Stats */}
+                      <div className="flex items-center w-20 text-right space-x-1">
+                        <div className="w-9 text-right">
+                          <span className={`text-xs ${racer.isYou ? 'text-primary font-bold' : 'text-gray-400'}`}>
+                            {racer.wpm > 0 ? Math.round(racer.wpm) : '0'}
+                          </span>
+                        </div>
+                        
+                        {/* Position or progress */}
+                        {racer.position ? (
+                          <div className="w-9 text-right">
+                            <span className={`text-xs font-medium ${
+                              racer.position === 1 ? 'text-yellow-300' : 
+                              racer.position === 2 ? 'text-gray-300' : 
+                              racer.position === 3 ? 'text-amber-600' : 'text-gray-400'
+                            }`}>
+                              {racer.position}{
+                                racer.position === 1 ? 'st' : 
+                                racer.position === 2 ? 'nd' : 
+                                racer.position === 3 ? 'rd' : 'th'
+                              }
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="w-9 text-right">
+                            <span className="text-xs text-gray-400">{Math.round(racer.progress)}%</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Typing interface */}
+            <div className="bg-dark-800 p-4 rounded-lg pixel-border">
+              {raceFinished ? (
+                <div className="space-y-4">
+                  <h2 className="text-2xl font-minecraft text-primary text-center">RACE COMPLETE!</h2>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-dark-950 p-3 rounded flex flex-col items-center justify-center">
+                      <span className="text-gray-400 text-xs mb-1">YOUR POSITION</span>
+                      <span className={`text-2xl font-minecraft ${
+                        playerPosition === 1 ? 'text-yellow-300' : 
+                        playerPosition === 2 ? 'text-gray-300' : 
+                        playerPosition === 3 ? 'text-amber-600' : 'text-white'
+                      }`}>
+                        {playerPosition}{
+                          playerPosition === 1 ? 'ST' : 
+                          playerPosition === 2 ? 'ND' : 
+                          playerPosition === 3 ? 'RD' : 'TH'
+                        }
+                      </span>
+                    </div>
+                    
+                    <div className="bg-dark-950 p-3 rounded flex flex-col items-center justify-center">
+                      <span className="text-gray-400 text-xs mb-1">WPM</span>
+                      <span className="text-2xl font-minecraft text-primary">{playerWpm}</span>
+                    </div>
+                    
+                    <div className="bg-dark-950 p-3 rounded flex flex-col items-center justify-center">
+                      <span className="text-gray-400 text-xs mb-1">ACCURACY</span>
+                      <span className="text-2xl font-minecraft text-primary">
+                        {keypressCount > 0 
+                          ? Math.round(((keypressCount - errorCount) / keypressCount) * 100) 
+                          : 100}%
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-center mt-4 space-x-4">
+                    <PixelButton onClick={() => setLocation('/multiplayer')} className="w-48">
+                      Race Again
+                    </PixelButton>
+                    
+                    <PixelButton onClick={handleBackToMenu} className="w-48" variant="outline">
+                      Back to Menu
+                    </PixelButton>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* NitroType-style clean text display container */}
+                  <div className="bg-white dark:bg-dark-900 p-3 rounded-lg shadow-md mb-3 relative overflow-hidden">
+                    {/* Text display with current character highlighted - optimized like NitroType */}
+                    <div className="font-mono md:text-lg text-base leading-relaxed mx-auto max-w-full text-center">
+                      {/* Calculate the visible text window (10 chars before and 30 after current position on mobile) */}
+                      {(() => {
+                        // Use smaller window on mobile
+                        const isMobile = window.innerWidth < 768;
+                        const charsBefore = isMobile ? 10 : 20;
+                        const charsAfter = isMobile ? 30 : 50;
+                        
+                        const windowStart = Math.max(0, currentIndex - charsBefore);
+                        const windowEnd = Math.min(typingPrompt.length, currentIndex + charsAfter);
+                        const showStartEllipsis = windowStart > 0;
+                        const showEndEllipsis = windowEnd < typingPrompt.length;
+                        
+                        return (
+                          <>
+                            {/* Starting ellipsis if we're not at the beginning */}
+                            {showStartEllipsis && <span className="text-gray-500">...</span>}
+                            
+                            {/* Typed text within window */}
+                            <span className="text-green-500 dark:text-green-400">
+                              {typingPrompt.substring(windowStart, currentIndex)}
+                            </span>
+                            
+                            {/* Current character */}
+                            {currentIndex < typingPrompt.length && (
+                              <span className="bg-primary/30 text-primary font-bold underline">
+                                {typingPrompt.charAt(currentIndex)}
+                              </span>
+                            )}
+                            
+                            {/* Upcoming text within window */}
+                            <span className="text-black dark:text-white">
+                              {typingPrompt.substring(Math.min(currentIndex + 1, typingPrompt.length), windowEnd)}
+                            </span>
+                            
+                            {/* Ending ellipsis if there's more text */}
+                            {showEndEllipsis && <span className="text-gray-500">...</span>}
+                          </>
+                        );
+                      })()}
+                    </div>
+                    
+                    {/* Left and right blue decorative elements like in NitroType */}
+                    <div className="absolute left-0 top-0 bottom-0 w-2 bg-blue-500 rounded-l-lg"></div>
+                    <div className="absolute right-0 top-0 bottom-0 w-2 bg-blue-500 rounded-r-lg"></div>
+                  </div>
+                  
+                  {/* Typing input area - Mobile-friendly with native keyboard support */}
+                  <div className="relative">
+                    {/* Mobile-friendly input (hidden but functional) */}
+                    <input
+                      type="text"
+                      className="sr-only absolute inset-0 w-full h-full opacity-0"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck="false"
+                      value={typed}
+                      onChange={(e) => {
+                        // Only update if the change was a single character addition
+                        // This ensures we maintain character-by-character validation
+                        if (e.target.value.length === typed.length + 1) {
+                          const newChar = e.target.value.charAt(e.target.value.length - 1);
+                          handleKeyDown({ key: newChar } as any);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        // Handle special keys like backspace from the real keyboard
+                        if (e.key === 'Backspace') {
+                          handleKeyDown({key: 'Backspace'} as KeyboardEvent);
+                        }
+                      }}
+                    />
+                    
+                    {/* Visual representation of the input */}
+                    <div 
+                      ref={inputRef}
+                      tabIndex={0}
+                      className={cn(
+                        "bg-dark-950 p-3 rounded-lg border-2 min-h-[50px]",
+                        errorState ? "border-red-500 animate-pulse" : "border-primary",
+                        "focus:outline-none cursor-text"
+                      )}
+                      onClick={() => {
+                        // Focus the hidden input when clicking the visual element
+                        const input = document.querySelector('input.sr-only');
+                        if (input instanceof HTMLInputElement) {
+                          input.focus();
+                        }
+                      }}
+                    >
+                      <span>{typed}</span>
+                      <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse"></span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-between mt-4">
+                    <div className="flex space-x-4">
+                      <div className="bg-dark-900 p-2 rounded-lg flex items-center min-w-[100px]">
+                        <span className="text-gray-400 mr-2">WPM:</span>
+                        <span className="text-primary font-bold">{playerWpm}</span>
+                      </div>
+                      <div className="bg-dark-900 p-2 rounded-lg flex items-center min-w-[100px]">
+                        <span className="text-gray-400 mr-2">Acc:</span>
+                        <span className="text-primary font-bold">
+                          {keypressCount > 0 
+                            ? Math.round(((keypressCount - errorCount) / keypressCount) * 100) 
+                            : 100}%
+                        </span>
+                      </div>
+                    </div>
+                    <PixelButton onClick={handleBackToMenu} size="sm" variant="outline">
+                      Leave Race
+                    </PixelButton>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+      
+      <Footer />
+    </div>
+  );
+}

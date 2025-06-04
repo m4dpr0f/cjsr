@@ -1,0 +1,52 @@
+{
+  "federation": {
+    "name": "CJSR Matrix Federation",
+    "version": "1.4.5",
+    "protocol": "cjsr-matrix-v1",
+    "defaultNodes": [
+      {
+        "name": "Origin Node - Replit",
+        "url": "https://chickenjockeyracer.replit.app",
+        "type": "primary",
+        "features": ["racing", "campaigns", "wisdom", "glyph-scribes", "leaderboards"]
+      }
+    ],
+    "localServer": {
+      "port": 3000,
+      "enableFederation": true,
+      "syncInterval": 300000,
+      "features": {
+        "localRacing": true,
+        "offlineMode": true,
+        "federationSync": true,
+        "localLeaderboards": true
+      }
+    },
+    "gameData": {
+      "campaigns": "./data/campaigns.json",
+      "wisdom": "./data/wisdom-texts.json",
+      "prompts": "./data/race-prompts.json",
+      "factions": "./data/factions.json"
+    }
+  },
+  "build": {
+    "platforms": ["windows", "mac", "linux", "web"],
+    "electron": {
+      "version": "22.3.0",
+      "platforms": {
+        "win32": {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        },
+        "darwin": {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        "linux": {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      }
+    }
+  }
+}

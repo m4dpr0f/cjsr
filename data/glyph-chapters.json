@@ -1,0 +1,26 @@
+[
+  {
+    "id": "chapter-1",
+    "name": "Chapter 1: Symbols of Character",
+    "glyphs": [
+      {
+        "name": "Compassion",
+        "symbol": "♡",
+        "meaning": "Universal love and kindness",
+        "lore": "The heart symbol represents the fundamental force that binds all beings together in mutual care and understanding."
+      },
+      {
+        "name": "Wisdom",
+        "symbol": "☯",
+        "meaning": "Balance of knowledge and understanding",
+        "lore": "The yin-yang symbol shows how opposing forces create harmony and deeper insight through their dynamic interaction."
+      },
+      {
+        "name": "Growth",
+        "symbol": "🌱",
+        "meaning": "Continuous learning and development",
+        "lore": "The sprouting seed represents the endless potential within every individual to evolve and flourish."
+      }
+    ]
+  }
+]

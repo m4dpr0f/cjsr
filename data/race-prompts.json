@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "text": "The quick brown fox jumps over the lazy dog",
+    "difficulty": "easy",
+    "category": "basic"
+  },
+  {
+    "id": 2,
+    "text": "Pack my box with five dozen liquor jugs",
+    "difficulty": "easy",
+    "category": "basic"
+  },
+  {
+    "id": 3,
+    "text": "In the depths of winter, I finally learned that within me there lay an invincible summer",
+    "difficulty": "medium",
+    "category": "literary"
+  },
+  {
+    "id": 4,
+    "text": "The only way to do great work is to love what you do",
+    "difficulty": "medium",
+    "category": "inspirational"
+  },
+  {
+    "id": 5,
+    "text": "Programming is not a science. Programming is a craft",
+    "difficulty": "medium",
+    "category": "technical"
+  }
+]

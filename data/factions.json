@@ -1,0 +1,50 @@
+{
+  "d2": {
+    "name": "Electric Guild",
+    "element": "Lightning",
+    "color": "#FFD700",
+    "description": "Masters of speed and precision"
+  },
+  "d4": {
+    "name": "Fire Guild",
+    "element": "Fire",
+    "color": "#FF4500",
+    "description": "Passionate racers with burning determination"
+  },
+  "d6": {
+    "name": "Earth Guild",
+    "element": "Earth",
+    "color": "#8B4513",
+    "description": "Grounded typists with steady hands"
+  },
+  "d8": {
+    "name": "Air Guild",
+    "element": "Air",
+    "color": "#87CEEB",
+    "description": "Swift and agile keyboard warriors"
+  },
+  "d10": {
+    "name": "Chaos Guild",
+    "element": "Chaos",
+    "color": "#8A2BE2",
+    "description": "Unpredictable masters of randomness"
+  },
+  "d12": {
+    "name": "Ether Guild",
+    "element": "Ether",
+    "color": "#9370DB",
+    "description": "Mystical typists channeling ancient wisdom"
+  },
+  "d20": {
+    "name": "Water Guild",
+    "element": "Water",
+    "color": "#4169E1",
+    "description": "Fluid and adaptive racing style"
+  },
+  "d100": {
+    "name": "Order Guild",
+    "element": "Order",
+    "color": "#FFE4B5",
+    "description": "Methodical perfectionists seeking balance"
+  }
+}
